@@ -1,222 +1,256 @@
 import copy
-import json
-import math
+import glob
+import os
 import random
-import sys
-import tempfile
 
+import cupy as cp
+import numpy as np
+import tqdm
 from PIL import Image
-from PIL import ImageDraw
-from PIL import ImageFilter
+
+from utils.dna import DNA, generate_dna
+from utils.utils import (
+    ParameterManager,
+    combine_images,
+    generate_gif_from_output_images,
+    image_to_numpy,
+    load_image,
+    oit_composite,
+)
 
 
-COLOUR_BLACK = (0, 0, 0, 255)
-COLOUR_WHITE = (255, 255, 255, 255)
-OFFSET = 10
-POLYGONS = 50
-POLY_MIN_POINTS = 3
-POLY_MAX_POINTS = 5
-
-
-class Polygon(object):
-    """Polygon"""
-    def __init__(self, colour=None, points=[]):
-        self.colour = colour
-        self.points = points
-
-    def __str__(self):
-        return self.__unicode__().encode('utf-8')
-
-    def __unicode__(self):
-        return u"{}, {}".format(self.points, self.colour)
-
-    def mutate(self, size):
-        """
-        mutate either colour or points.
-        """
-        rand = random.random()
-        if rand <= 0.5:
-            print u"changing colour"
-            idx = random.randrange(0, 4)
-            value = random.randrange(0, 256)
-            colour = list(self.colour)
-            colour[idx] = value
-            self.colour = tuple(colour)
-        else:
-            print u"changing point"
-            idx = random.randrange(0, len(self.points))
-            point = generate_point(size[0], size[1])
-            self.points[idx] = point
-
-
-class DNA(object):
-    """DNA"""
-    def __init__(self, img_size, polygons=[]):
-        self.img_size = img_size
-        self.polygons = polygons
-        self.generation = 0
-
-    def __str__(self):
-        return self.__unicode__().encode('utf-8')
-
-    def __unicode__(self):
-        return u"{}".format(self.polygons)
-
-    def print_polygons(self):
-        """
-        debug function to print all DNA polygon info.
-        """
-        for polygon in self.polygons:
-            print polygon
-
-    def draw(self, background=COLOUR_BLACK, show=False, save=False,
-             generation=None):
-        """
-        paint all DNA polygons onto an Image and show it.
-        """
-        size = self.img_size
-        img = Image.new('RGB', size, background)
-        draw = Image.new('RGBA', size)
-        pdraw = ImageDraw.Draw(draw)
-        for polygon in self.polygons:
-            colour = polygon.colour
-            points = polygon.points
-            pdraw.polygon(points, fill=colour, outline=colour)
-            img.paste(draw, mask=draw)
-
-        if show:
-            img.show()
-
-        if save:
-            # TODO use self.generation
-            temp_dir = tempfile.gettempdir()
-            temp_name = u"0000000000{}".format(generation)[-10:]
-            out_path = u"{}/{}.png".format(temp_dir, temp_name)
-            img = img.filter(ImageFilter.GaussianBlur(radius=3))
-            img.save(out_path)
-            print u"saving image to {}".format(out_path)
-
-        return img
-
-    def mutate(self):
-        """
-        mutate the dna.
-        """
-        # pick a random polygon
-        polygons = copy.deepcopy(self.polygons)
-        rand = random.randrange(0, len(polygons))
-        random_polygon = polygons[rand]
-        random_polygon.mutate(self.img_size)
-
-        return DNA(self.img_size, polygons)
-
-
-def fitness(img_1, img_2):
+def fitness(img_1: np.ndarray, img_2: np.ndarray) -> float:
     """
-    fitness funtcion determines how much alike 2 images are.
+    fitness function determines how much alike an image (as ndarray) and DNA are.
     """
-    fitness = 0.0
-    for y in range(0, img_1.size[1]):
-        for x in range(0, img_1.size[0]):
-            r1, g1, b1 = img_1.getpixel((x, y))
-            r2, g2, b2 = img_2.getpixel((x, y))
-            # get delta per color
-            d_r = r1 - r2
-            d_b = b1 - b2
-            d_g = g1 - g2
-            # measure the distance between the colors in 3D space
-            pixel_fitness = math.sqrt(d_r * d_r + d_g * d_g + d_b * d_b )
-            # add the pixel fitness to the total fitness (lower is better)
-            fitness += pixel_fitness
-    return fitness
+    return cp.linalg.norm(cp.array(img_1) - cp.array(img_2))
 
 
-def generate_point(width, height):
-    """
-    generate random (x,y) coordinates in given range (+offset).
-    """
-    x = random.randrange(0 - OFFSET, width + OFFSET, 1)
-    y = random.randrange(0 - OFFSET, height + OFFSET, 1)
-    return (x, y)
+class ImageGenerator:
+    def __init__(
+        self,
+        im_path: str,
+        name: str = "nameless",
+        draw_on_init: bool = True,
+        num_polygons: int = 50,
+    ):
+        self.name: str = name
+        self.im_path: str = im_path
+        self.image: Image.Image = load_image(im_path)
+        self.img_size: tuple = self.image.size
+        self.dna: DNA = generate_dna(
+            self.img_size, self.im_path, dna_size=num_polygons, fixed_colour=False
+        )
+        self.frozen_polygons: tuple[int, int] = (0, 0)
+        if draw_on_init:
+            self.dna.draw(save=True, name=f"{self.name}_initial")
+
+    def evolve(
+        self,
+        num_epochs: int,
+        round: int,
+        num_mutations: int = 1,
+        offsetcol: int = 10,
+        offsetx: int = 10,
+        offsety: int = 10,
+    ):
+        original_numpy = image_to_numpy(self.image)
+        num_changes = 0
+        for _ in tqdm.trange(num_epochs):
+            dna_child = self.dna.mutate_dna(
+                num_mutations=num_mutations,
+                offsetcol=offsetcol,
+                offsetx=offsetx,
+                offsety=offsety,
+                frozen_polygons=self.frozen_polygons,
+            )
+            fitness_parent = fitness(
+                original_numpy, image_to_numpy(self.dna.draw(save=False))
+            )
+            fitness_child = fitness(
+                original_numpy, image_to_numpy(dna_child.draw(save=False))
+            )
+            if fitness_child < fitness_parent:
+                self.dna = dna_child
+                fitness_parent = fitness_child
+                num_changes += 1
+        self.fitness = fitness_parent
+        print(f"{self.name} made {num_changes} improvements in round {round}.")
+        return num_changes
+
+    def save_drawn_image(self, name: str):
+        self.dna.draw(save=True, name=f"{name}")
+
+    """def determine_n_best_polygons_by_fitness_contribution(self, n: int = 50) -> List[Polygon]:
+        fitness_contributions = []
+        for i in range(len(self.dna.polygons)):
+            polygon_collection = DNA(
+                img_size=self.img_size,
+                img_path=self.im_path,
+                polygons=self.dna.polygons[:i] + self.dna.polygons[i + 1 :],
+            )
+            img_polygon = polygon_collection.draw(save=False)
+            fitness_polygon = fitness(self.image, img_polygon)
+            fitness_contributions.append(self.fitness - fitness_polygon)
+        del img_polygon
+        zipped = sorted(
+            zip(fitness_contributions, self.dna.polygons),
+            reverse=True,
+            key=lambda x: x[0],
+        )
+        best_polygons = [item[1] for item in zipped[:n]]
+        return best_polygons
 
 
-def generate_colour():
-    """
-    generate random (r,g,b,a) colour.
-    """
-    red = random.randrange(0, 256)
-    green = random.randrange(0, 256)
-    blue = random.randrange(0, 256)
-    alpha = random.randrange(0, 256)
-    return (red, green, blue, alpha)
+    def determine_n_best_polygons_by_fitness(self, n: int = 50) -> List[Polygon]:
+        fitness_contributions = []
+        for polygon in self.dna.polygons:
+            polygon_collection = DNA(
+                img_size=self.img_size,
+                img_path=self.im_path,
+                polygons=[polygon],
+            )
+            img_polygon = polygon_collection.draw(save=False)
+            fitness_polygon = fitness(self.image, img_polygon)
+            fitness_contributions.append(self.fitness - fitness_polygon)
+        del img_polygon
+        zipped = sorted(
+            zip(fitness_contributions, self.dna.polygons),
+            reverse=False,
+            key=lambda x: x[0],
+        )
+        best_polygons = [item[1] for item in zipped[:n]]
+        return best_polygons
+    
+    def determine_n_best_polygons_randomly(self, n: int = 50) -> List[Polygon]:
+        return random.sample(self.dna.polygons, n)"""
 
 
-def generate_dna(img_size, dna_size=POLYGONS, fixed_colour=False):
-    """
-    generate dna string consisting of polygons.
-    """
-    dna = None
-    polygons = []
-    (width, height) = img_size
-
-    for i in range(POLYGONS):
-        nr_of_points = random.randrange(POLY_MIN_POINTS, POLY_MAX_POINTS + 1)
-        points = []
-        for j in range(nr_of_points):
-            # generate a point (x,y) in 2D space and append it to points.
-            point = generate_point(width, height)
-            points.append(point)
-
-        # generate colour (r,g,b,a) for polygon
-        # colour = COLOUR_BLACK if fixed_colour else generate_colour()
-        colour = COLOUR_WHITE if fixed_colour else generate_colour()
-        polygon = Polygon(colour, points)
-        polygons.append(polygon)
-
-    dna = DNA(img_size, polygons)
-    return dna
+def cleanup_temp_files():
+    files = glob.glob("./img_out/*.png")
+    for f in files:
+        os.remove(f)
 
 
-def load_image(path):
-    img = Image.open(path)
-    return img
+ROUNDS = 200
 
 
-def main(argv):
-    """
-    call with bin/python generate.py <path_to_image>
-    """
-    if len(argv) != 2:
-        sys.exit(0)
-
-    path = argv[1]
-    img = load_image(path)
-    img_size = img.size
-    dna = generate_dna(img_size, dna_size=POLYGONS, fixed_colour=True)
-    # dna.print_polygons()
-    parent = dna.draw(show=False)
-    fitness_parent = fitness(img, parent)
-
-    generations = pic_nr = 0
-    while True:
-        dna_mutated = dna.mutate()
-        child = dna_mutated.draw()
-        fitness_child = fitness(img, child)
-        if fitness_child < fitness_parent:
-            dna = dna_mutated
-            fitness_parent = fitness_child
-            print u"picking child w. fitness: {}".format(fitness_child)
-
-        generations += 1
-        if generations % 100 == 0:
-            print u"showing generation {}".format(generations)
-            pic_nr += 1
-            dna.draw(show=False, save=True, generation=pic_nr)
-            # with open('dna.txt', 'w') as outfile:
-            #     json.dump(dna, outfile)
-
-    return sys.exit(0)
+def add_dna(client: ImageGenerator, num_polygons: int = 50) -> ImageGenerator:
+    """Copy some polygons and halve their and their parents' alpha to add more DNA to the client."""
+    duplicate_indices = sorted(
+        random.sample(range(len(client.dna.polygons)), num_polygons)
+    )
+    new_polygons = [copy.deepcopy(client.dna.polygons[i]) for i in duplicate_indices]
+    for polygon in new_polygons:
+        polygon.halve_alpha()
+    for i in duplicate_indices:
+        client.dna.polygons[i].halve_alpha()
+    client.dna.polygons += new_polygons
+    client.frozen_polygons = (0, int(len(client.dna.polygons) - num_polygons))
+    return client
 
 
-if __name__ == "__main__":
-    main(sys.argv)
+def evolisa(
+    client: ImageGenerator = None,
+    num_epochs: int = 200,
+    num_rounds: int = ROUNDS,
+    num_polygons: int = 50,
+    name: str = "evolisa",
+    path: str = "img_in/images.jpg",
+):
+    if client is None:
+        client = ImageGenerator(
+            path, name=name, draw_on_init=True, num_polygons=num_polygons
+        )
+    param_manager = ParameterManager(initial_offset=100)
+    for round in range(1, num_rounds + 1):
+        offset = param_manager.get_offset()
+        num_changes = client.evolve(
+            num_epochs=num_epochs,
+            round=round,
+            offsetcol=offset,
+            offsetx=offset,
+            offsety=offset,
+        )
+        print(f"Client fitness after round {round}: {client.fitness}, offset: {offset}")
+        if param_manager.should_add_dna(num_changes=num_changes, threshold=3):
+            print(
+                f"Adding more DNA to client {client.name} at round {round} due to low improvements."
+            )
+            # client.save_drawn_image(name=f"dna_{name}_round_{round}_before_adding_dna")
+            client = add_dna(client, num_polygons=num_polygons)
+            # client.save_drawn_image(name=f"dna_{name}_round_{round}_after_adding_dna")
+            print(f"Total polygons after adding: {len(client.dna.polygons)}")
+        # client.save_drawn_image(name=f"dna_{name}_round_{round}")
+    # generate_gif_from_output_images(name=name, num_rounds=num_rounds)
+    return client
+
+# We generate a polygon picture from both mona_lisa1.jpg and mona_lisa2.jpg, and combine them into a more correct drawing.
+
+NUM_ROUNDS = 20
+
+client1 = evolisa(
+    num_epochs=100,
+    num_rounds=NUM_ROUNDS,
+    num_polygons=10,
+    name="ml_1",
+    path="img_in/mona_lisa1.jpg",
+)
+client2 = evolisa(
+    num_epochs=100,
+    num_rounds=NUM_ROUNDS,
+    num_polygons=10,
+    name="ml_2",
+    path="img_in/mona_lisa2.jpg",
+)
+dna1, dna2 = client1.dna.polygons, client2.dna.polygons
+dna_combined = dna1 + dna2
+
+for dna, save_name in zip(
+    [dna1, dna2, dna_combined],
+    [
+        f"./img_out/ml1_combined_round_0.png",
+        f"./img_out/ml2_combined_round_0.png",
+        f"./img_out/ml_combined_round_0.png",
+    ],
+):
+
+    img = oit_composite(dna, client1.img_size)
+    img.save(save_name)
+
+for i in range(1, 21):
+    client1 = evolisa(
+        client=client1,
+        num_epochs=100,
+        num_rounds=NUM_ROUNDS,
+        num_polygons=10,
+        name="ml_1",
+        path="img_in/mona_lisa1.jpg",
+    )
+    client2 = evolisa(
+        client=client2,
+        num_epochs=100,
+        num_rounds=NUM_ROUNDS,
+        num_polygons=10,
+        name="ml_2",
+        path="img_in/mona_lisa2.jpg",
+    )
+
+    dna1, dna2 = client1.dna.polygons, client2.dna.polygons
+    dna_combined = dna1 + dna2
+
+    for dna, save_name in zip(
+        [dna1, dna2, dna_combined],
+        [
+            f"./img_out/ml1_combined_round_{i}.png",
+            f"./img_out/ml2_combined_round_{i}.png",
+            f"./img_out/ml_combined_round_{i}.png",
+        ],
+    ):
+
+        img = oit_composite(dna, client1.img_size)
+        img.save(save_name)
+
+
+combine_images()
+cleanup_temp_files()
