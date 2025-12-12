@@ -193,25 +193,23 @@ client1 = evolisa(
     num_epochs=100,
     num_rounds=NUM_ROUNDS,
     num_polygons=10,
-    name="ml_1",
-    path="img_in/mona_lisa1.jpg",
+    name="amg_1",
+    path="img_in/am_goth1.jpg",
 )
 client2 = evolisa(
     num_epochs=100,
     num_rounds=NUM_ROUNDS,
     num_polygons=10,
-    name="ml_2",
-    path="img_in/mona_lisa2.jpg",
+    name="amg_2",
+    path="img_in/am_goth2.jpg",
 )
 dna1, dna2 = client1.dna.polygons, client2.dna.polygons
-dna_combined = dna1 + dna2
 
 for dna, save_name in zip(
-    [dna1, dna2, dna_combined],
+    [dna1, dna2],
     [
-        f"./img_out/ml1_combined_round_0.png",
-        f"./img_out/ml2_combined_round_0.png",
-        f"./img_out/ml_combined_round_0.png",
+        f"./img_out/amg1_combined_round_0.png",
+        f"./img_out/amg2_combined_round_0.png",
     ],
 ):
 
@@ -225,7 +223,7 @@ for i in range(1, 21):
         num_rounds=NUM_ROUNDS,
         num_polygons=10,
         name="ml_1",
-        path="img_in/mona_lisa1.jpg",
+        path="img_in/am_goth1.jpg",
     )
     client2 = evolisa(
         client=client2,
@@ -233,18 +231,15 @@ for i in range(1, 21):
         num_rounds=NUM_ROUNDS,
         num_polygons=10,
         name="ml_2",
-        path="img_in/mona_lisa2.jpg",
+        path="img_in/am_goth2.jpg",
     )
 
-    dna1, dna2 = client1.dna.polygons, client2.dna.polygons
-    dna_combined = dna1 + dna2
 
     for dna, save_name in zip(
-        [dna1, dna2, dna_combined],
+        [dna1, dna2],
         [
-            f"./img_out/ml1_combined_round_{i}.png",
-            f"./img_out/ml2_combined_round_{i}.png",
-            f"./img_out/ml_combined_round_{i}.png",
+            f"./img_out/amg1_combined_round_{i}.png",
+            f"./img_out/amg2_combined_round_{i}.png",
         ],
     ):
 
@@ -252,5 +247,5 @@ for i in range(1, 21):
         img.save(save_name)
 
 
-combine_images()
-cleanup_temp_files()
+#combine_images()
+#cleanup_temp_files()
