@@ -4,7 +4,6 @@ from typing import List
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from utils.dna import DNA
 from utils.polygon import Polygon
 
 
@@ -80,20 +79,20 @@ class DNA(object):
         random_polygon = polygons[rand_idx]
         for _ in range(num_mutations):
             rand = random.random()
-            if rand <= 0.35:
+            if rand <= 0.5:
                 random_polygon.mutate_colour(offset=offsetcol)
-            elif rand <= 0.7:
+            elif rand <= 1:
                 random_polygon.mutate_point(
                     self.img_size, offsetx=offsetx, offsety=offsety
                 )
-            elif rand <= 0.85:
+            '''elif rand <= 0.85:
                 random_polygon.add_vertex(self.img_size)
             elif rand <= 0.95:
                 random_polygon.remove_vertex()
             else:
                 random_polygon.move_polygon(
                     self.img_size, offsetx=offsetx, offsety=offsety
-                )
+                )'''
         return DNA(self.img_size, self.img_path, polygons)
 
 

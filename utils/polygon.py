@@ -64,9 +64,10 @@ class Polygon(object):
         remove a vertex from the polygon.
         """
         idx = random.randrange(0, len(self.points))
-        points = list(copy.deepcopy(self.points))
-        points.pop(idx)
-        self.points = tuple(points)
+        if len(self.points > 3):
+            points = list(copy.deepcopy(self.points))
+            points.pop(idx)
+            self.points = tuple(points)
 
     def move_polygon(self, img_size: tuple, offsetx: int = 50, offsety: int = 50):
         """
