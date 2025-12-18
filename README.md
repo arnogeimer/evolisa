@@ -3,4 +3,6 @@ Added functionalities are round-decreasing offsets when changing polygons, addit
 
 In the image below, the top rows show individual reconstructions based on incomplete information. The bottom row demonstrates how combining outputs yields a more accurate final image.
 
-![Example](img_out/grid.png)
+![Example 1: Combining outputs](img_out/grid_ml.png)
+
+![Example 2: Combining models during training](img_out/grid_gpe.png)
