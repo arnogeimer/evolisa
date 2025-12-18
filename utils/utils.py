@@ -1,7 +1,9 @@
 import imageio.v2 as imageio
 import numpy as np
 from PIL import Image, ImageDraw
-
+import cupy as cp
+from typing import List, Tuple
+from utils.polygon import Polygon
 
 def load_image(path: str) -> Image.Image:
     img = Image.open(path)
@@ -51,6 +53,31 @@ def oit_composite(polygons, size):
     result = (result * 255).astype(np.uint8)
     return Image.fromarray(result, mode="RGBA")
 
+def draw_polygon_rgb(size: Tuple[int, int], polygons: List[Polygon]):
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = Image.new("RGBA", size)
+
+    for polygon in polygons:
+        layer = Image.new("RGBA", size)
+        draw = ImageDraw.Draw(layer, "RGBA")
+        colour = polygon.colour
+        points = polygon.points
+        draw.polygon(points, fill=colour, outline=None)
+        canvas = Image.alpha_composite(canvas, layer)
+
+    background = Image.new("RGB", canvas.size, (255, 255, 255))
+    background.paste(canvas, mask=canvas.split()[3])  # use alpha as mask
+    canvas = background
+
+    return canvas
+
+
+def fitness(img_1: np.ndarray, img_2: np.ndarray) -> float:
+    """
+    fitness function determines how much alike an image (as ndarray) and DNA are.
+    """
+    return cp.linalg.norm(cp.array(img_1) - cp.array(img_2))
+
 
 def generate_gif_from_output_images(name: str = "evolisa", num_rounds: int = 200):
     filenames = [
@@ -95,7 +122,7 @@ class ParameterManager(object):
     def get_offset(self) -> int:
         return int(max(1, self.offset))
 
-    def should_add_dna(self, num_changes: int, threshold: int = 5) -> bool:
+    def should_copy_polygons(self, num_changes: int, threshold: int = 5) -> bool:
         """
         If we have had less than num_changes_threshold improvements for threshold rounds,
         return True to call add_dna.
