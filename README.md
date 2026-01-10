@@ -5,4 +5,6 @@ In the image below, the top rows show individual reconstructions based on incomp
 
 ![Example 1: Combining outputs](img_out/grid_ml.png)
 
+In the image below, we combined updates during the training process rather than to the output.
+
 ![Example 2: Combining models during training](img_out/grid_gpe.png)
