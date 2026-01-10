@@ -1,5 +1,5 @@
 The code for this project is a heavily modified version of https://github.com/itsmux/evolisa.
-Added functionalities are round-decreasing offsets when changing polygons, additional mutation possibilities, freezing polygons when improvement are rare coupled with the addition of a new set of polygons (copies of the frozen polygons), andl as improvements to the fitness function and image drawing.
+Added functionalities are round-decreasing offsets when changing polygons, additional mutation possibilities, freezing polygons when improvement are rare, coupled with the addition of a new set of trainable polygons (copies of the frozen polygons), and improvements to the fitness function and image drawing.
 
 In the image below, the top rows show individual reconstructions based on incomplete information. The bottom row demonstrates how combining outputs yields a more accurate final image.
 
